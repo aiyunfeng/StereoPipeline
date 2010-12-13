@@ -63,9 +63,12 @@ mipmap_LDADD          = $(PTK_LOCAL_LIBS)
 shadow_mask_SOURCES   = shadow_mask.cc
 shadow_mask_LDADD     = $(PTK_LOCAL_LIBS)
 
+dem_outlier_SOURCES   = dem_outlier.cc
+dem_outlier_LDADD     = $(PTK_LOCAL_LIBS)
+
 bin_PROGRAMS = phodrg2plate phoinitfile phoitalbedo        \
                phoitdem phoiterror phoitreflect phoittime  \
-               ptk_server phoinitet mipmap shadow_mask
+               ptk_server phoinitet mipmap shadow_mask dem_outlier
 
 endif
 
