@@ -13,8 +13,9 @@ if MAKE_MODULE_CORE
 
 TestErodeView_SOURCES         = TestErodeView.cxx
 TestBlobIndexThreaded_SOURCES = TestBlobIndexThreaded.cxx
+TestCorrByPartView_SOURCES    = TestCorrByPartView.cxx
 
-TESTS = TestErodeView TestBlobIndexThreaded
+TESTS = TestErodeView TestBlobIndexThreaded TestCorrByPartView
 
 endif
 
