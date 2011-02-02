@@ -906,8 +906,8 @@ int main(int argc, char* argv[]){
     osg::ref_ptr<osg::GraphicsContext::Traits> traits = new osg::GraphicsContext::Traits;
     traits->x = 100;
     traits->y = 100;
-    traits->width = 1280;
-    traits->height = 1024;
+    traits->width = 640;
+    traits->height = 480;
     traits->windowDecoration = true;
     traits->doubleBuffer = true;
     traits->sharedContext = 0;
