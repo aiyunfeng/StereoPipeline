@@ -198,25 +198,34 @@ template <class ViewT>
 vw::ImageView<vw::Vector4f>
 compute_search_ranges(vw::ImageViewBase<ViewT> const& map,
                       size_t partition_size ) {
-  vw::ImageView<vw::Vector4f> search_range( map.cols()/partition_size,
-                                           map.rows()/partition_size);
-  for ( ssize_t j = 0; j < search_range.row(); j++ ) {
-    for ( ssize_t i = 0; i < search_range.col(); i++ ) {
-      ImageViewRef<PixelMask<Vector2f> > crop_disparity =
-        crop(map.impl(),BBox2i(i*partition_size,j*partition_size,
+  vw::ImageView<vw::Vector4f>
+    search_range( map.impl().cols()/partition_size,
+                  map.impl().rows()/partition_size );
+
+  // Require at least 2% of the tile be filed in to calculate a search range
+  size_t MIN_COUNT = partition_size*partition_size*0.02;
+
+  for ( ssize_t j = 0; j < search_range.rows(); j++ ) {
+    for ( ssize_t i = 0; i < search_range.cols(); i++ ) {
+      vw::ImageViewRef<vw::PixelMask<vw::Vector2f> > crop_disparity =
+        crop(map.impl(),vw::BBox2i(i*partition_size,j*partition_size,
                                partition_size,partition_size));
       // TODO: Count valid and get range should happen in the same run
-      if ( count_valid_pixels(crop_disparity) > 20*20 ) {
-        BBox2f s = get_disparity_range(crop_disparity);
+      if ( vw::sum_of_pixel_values(vw::select_channel(crop_disparity,2))
+           > MIN_COUNT ) {
+        vw::BBox2f s = vw::stereo::get_disparity_range(crop_disparity);
         subvector(search_range(i,j),0,2) = s.min();
         subvector(search_range(i,j),2,2) = s.max();
       } else {
-        search_range(i,j) = Vector4f(0,0,0,0);
+        search_range(i,j) = vw::Vector4f(0,0,0,0);
       }
     }
   }
 
-  // Could grow
+  // TODO:
+  // Do I need to grow the search region slightly by their neighbors?
+
+  return search_range;
 }
 
 #endif//__ASP_CORR_BY_PART_VIEW__

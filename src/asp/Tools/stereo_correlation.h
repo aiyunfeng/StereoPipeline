@@ -15,6 +15,20 @@
 
 namespace vw {
 
+  void subsample_image( Options& opt,
+                        std::string const& ifile,
+                        std::string const& ofile ) {
+    DiskImageResource<PixelGray<float> > input(file);
+    ImageViewRef<PixelGray<float> > output =
+      subsample( gaussian_filter(input,1.2), 2 );
+    DiskImageResourceGDAL rsrc( ofile,
+                                output.format(),
+                                opt.raster_tile_size,
+                                opt.gdal_options );
+    block_write_image( disparity_map_rsrc, disparity_map,
+                       TerminalProgressCallback("asp", "\t--> Subsampling :") );
+  }
+
   // approximate search range
   //  Find interest points and grow them into a search range
   BBox2i
@@ -159,32 +173,27 @@ namespace vw {
 
   // Correlator View
   template <class FilterT>
-    inline stereo::CorrelatorView<PixelGray<float>,vw::uint8,FilterT>
-    correlator_helper( DiskImageView<PixelGray<float> > & left_disk_image,
-                       DiskImageView<PixelGray<float> > & right_disk_image,
-                       DiskImageView<vw::uint8> & left_mask,
-                       DiskImageView<vw::uint8> & right_mask,
-                       FilterT const& filter_func, vw::BBox2i & search_range,
-                       stereo::CorrelatorType const& cost_mode,
-                       bool draft_mode,
-                       std::string & corr_debug_prefix,
-                       bool use_pyramid=true ) {
-    stereo::CorrelatorView<PixelGray<float>,
-      vw::uint8,FilterT> corr_view( left_disk_image, right_disk_image,
-                                    left_mask, right_mask, filter_func,
-                                    use_pyramid );
+  inline CorrByPartView<PixelGray<float>,vw::uint8,FilterT>
+  correlator_helper( DiskImageView<PixelGray<float> > & left_disk_image,
+                     DiskImageView<PixelGray<float> > & right_disk_image,
+                     DiskImageView<vw::uint8> & left_mask,
+                     DiskImageView<vw::uint8> & right_mask,
+                     ImageView<Vector4f> & search_image,
+                     size_t partition_size,
+                     FilterT const& filter_func,
+                     stereo::CorrelatorType const& cost_mode ) {
+    CorrByPartView<PixelGray<float>, vw::uint8,FilterT>
+      corr_view( left_disk_image, right_disk_image,
+                 left_mask, right_mask,
+                 search_image, partition_size,
+                 filter_func );
 
-    corr_view.set_search_range(search_range);
-    corr_view.set_kernel_size(Vector2i(stereo_settings().h_kern,
-                                       stereo_settings().v_kern));
+    corr_view.set_kernel_size(stereo_settings().h_kern);
     corr_view.set_cross_corr_threshold(stereo_settings().xcorr_threshold);
     corr_view.set_corr_score_threshold(stereo_settings().corrscore_rejection_threshold);
     corr_view.set_correlator_options(stereo_settings().cost_blur, cost_mode);
 
-    if (draft_mode)
-      corr_view.set_debug_mode(corr_debug_prefix);
-
-    vw_out() << corr_view;
+    //    vw_out() << corr_view;
     vw_out() << "\t--> Building Disparity map." << std::endl;
 
     return corr_view;
@@ -245,6 +254,28 @@ namespace vw {
     else if (stereo_settings().cost_mode == 2)
       cost_mode = stereo::NORM_XCORR_CORRELATOR;
 
+    // Generate pyramid layers
+    ssize_t levels_to_process = log(std::min(left_disk_image.cols(),
+                                             left_disk_image.rows()))/log(2)-7;
+    std::cout << "Levels: " << levels_to_process << "\n";
+    if ( levels_to_process < 1 ) levels_to_process = 1;
+    for ( ssize_t level = 1; level < levels_to_process; level++ ) {
+      std::ostringstream oext, iext;
+      oext << level << ".tif";
+      if ( levels_to_process > 1 )
+        iext << level - 1 << ".tif";
+      else
+        iext << ".tif";
+
+      subsample_image(fs::path(filename_L).replace_ext(iext.string()).string(),
+                      fs::path(filename_L).replace_ext(oext.string()).string());
+      subsample_image(fs::path(filename_R).replace_ext(iext.string()).string(),
+                      fs::path(filename_R).replace_ext(oext.string()).string());
+    }
+
+    // levels I want to process = log2(smallest dimension) - 7
+
+    /*
     if (stereo_settings().pre_filter_mode == 3) {
       vw_out() << "\t--> Using SLOG pre-processing filter with "
                << stereo_settings().slogW << " sigma blur.\n";
@@ -285,6 +316,7 @@ namespace vw {
                                              opt.gdal_options );
     block_write_image( disparity_map_rsrc, disparity_map,
                        TerminalProgressCallback("asp", "\t--> Correlation :") );
+    */
   }
 
 } //end namespace vw

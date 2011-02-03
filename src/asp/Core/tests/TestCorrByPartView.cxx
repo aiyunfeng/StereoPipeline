@@ -6,6 +6,7 @@
 
 
 #include <gtest/gtest.h>
+#include <test/Helpers.h>
 
 #include <vw/Image/UtilityViews.h>
 #include <vw/Image/Transform.h>
@@ -95,4 +96,22 @@ TEST_F( BasicCorrelationTest, BlurPreprocess ) {
     correlate( image1, image2, mask, search,
                BlurStereoPreprocessingFilter() );
   check_error( disparity_map, 0.75 );
+}
+
+TEST( CorrByPartView, ComputeSearchRange ) {
+  ImageView<PixelMask<Vector2f> > disparity(8,8);
+  fill(crop(disparity,0,0,4,4),PixelMask<Vector2f>(Vector2f(3,4) ) );
+  fill(crop(disparity,4,0,4,4),PixelMask<Vector2f>(Vector2f(2,2) ) );
+  disparity(6,2) = PixelMask<Vector2f>(Vector2f(4,4));
+  disparity(5,5) = PixelMask<Vector2f>(Vector2f(-2,-3));
+  disparity(6,6) = PixelMask<Vector2f>(Vector2f(5,7));
+
+  ImageView<Vector4f> search =
+    compute_search_ranges( disparity, 4 );
+  ASSERT_EQ( 2, search.cols() );
+  ASSERT_EQ( 2, search.rows() );
+  EXPECT_VECTOR_FLOAT_EQ( Vector4f(3,4,3,4), search(0,0) );
+  EXPECT_VECTOR_FLOAT_EQ( Vector4f(0,0,0,0), search(0,1) );
+  EXPECT_VECTOR_FLOAT_EQ( Vector4f(2,2,4,4), search(1,0) );
+  EXPECT_VECTOR_FLOAT_EQ( Vector4f(-2,-3,5,7), search(1,1) );
 }
