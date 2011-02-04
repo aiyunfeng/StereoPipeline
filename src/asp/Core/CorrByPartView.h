@@ -162,9 +162,9 @@ public:
                      m_corr_score_threshold,
                      m_cost_blur, m_correlator_type );
         ImageView<pixel_type> disparity_map =
-          disparity_mask( correlator( crop( edge_extend(m_left_image), left_crop_bbox ),
-                                      crop( edge_extend(m_right_image), right_crop_bbox ),
-                                      m_preproc_func ),
+          vw::stereo::disparity_mask( correlator( crop( edge_extend(m_left_image), left_crop_bbox ),
+                                                  crop( edge_extend(m_right_image), right_crop_bbox ),
+                                                  m_preproc_func ),
                           crop( edge_extend(m_left_image), left_crop_bbox ),
                           crop( edge_extend(m_right_image), right_crop_bbox ) );
 
@@ -199,8 +199,8 @@ vw::ImageView<vw::Vector4f>
 compute_search_ranges(vw::ImageViewBase<ViewT> const& map,
                       size_t partition_size ) {
   vw::ImageView<vw::Vector4f>
-    search_range( map.impl().cols()/partition_size,
-                  map.impl().rows()/partition_size );
+    search_range( map.impl().cols()/partition_size+1,
+                  map.impl().rows()/partition_size+1 );
 
   // Require at least 2% of the tile be filed in to calculate a search range
   size_t MIN_COUNT = partition_size*partition_size*0.02;

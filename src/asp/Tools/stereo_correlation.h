@@ -10,22 +10,29 @@
 #ifndef __ASP_STEREO_CORRELATION_H__
 #define __ASP_STEREO_CORRELATION_H__
 
+#include <asp/Core/CorrByPartView.h>
 #include <asp/Tools/stereo.h>
 #include <vw/InterestPoint.h>
 
 namespace vw {
 
+  template <class PixelT>
   void subsample_image( Options& opt,
                         std::string const& ifile,
-                        std::string const& ofile ) {
-    DiskImageResource<PixelGray<float> > input(file);
-    ImageViewRef<PixelGray<float> > output =
+                        std::string const& ofile,
+                        bool th = false ) {
+    DiskImageView<PixelT > input(ifile);
+    ImageViewRef<PixelT > output =
       subsample( gaussian_filter(input,1.2), 2 );
+    if ( th ) {
+      output = threshold(output,PixelT(128),
+                         PixelT(0),PixelT(255));
+    }
     DiskImageResourceGDAL rsrc( ofile,
                                 output.format(),
                                 opt.raster_tile_size,
                                 opt.gdal_options );
-    block_write_image( disparity_map_rsrc, disparity_map,
+    block_write_image( rsrc, output,
                        TerminalProgressCallback("asp", "\t--> Subsampling :") );
   }
 
@@ -173,12 +180,12 @@ namespace vw {
 
   // Correlator View
   template <class FilterT>
-  inline CorrByPartView<PixelGray<float>,vw::uint8,FilterT>
+  inline CorrByPartView<PixelGray<float>, vw::uint8, FilterT >
   correlator_helper( DiskImageView<PixelGray<float> > & left_disk_image,
                      DiskImageView<PixelGray<float> > & right_disk_image,
                      DiskImageView<vw::uint8> & left_mask,
                      DiskImageView<vw::uint8> & right_mask,
-                     ImageView<Vector4f> & search_image,
+                     ImageView<Vector4f> const& search_image,
                      size_t partition_size,
                      FilterT const& filter_func,
                      stereo::CorrelatorType const& cost_mode ) {
@@ -228,14 +235,10 @@ namespace vw {
         approximate_search_range( l_sub_file, r_sub_file, sub_scale );
     }
 
-
+    /*
     DiskImageView<vw::uint8> Lmask(opt.out_prefix + "-lMask.tif"),
       Rmask(opt.out_prefix + "-rMask.tif");
 
-    std::string filename_L = opt.out_prefix+"-L.tif",
-      filename_R = opt.out_prefix+"-R.tif";
-
-    /*
       if (MEDIAN_FILTER==1){
       filename_L = out_prefix+"-median-L.tif";
       filename_R = out_prefix+"-median-R.tif";
@@ -244,8 +247,11 @@ namespace vw {
       filename_R = out_prefix+"-R.tif";
       }*/
 
-    DiskImageView<PixelGray<float> > left_disk_image(filename_L),
-      right_disk_image(filename_R);
+    std::string filename_L = opt.out_prefix+"-L.tif",
+      filename_R = opt.out_prefix+"-R.tif",
+      mask_L = opt.out_prefix+"-lMask.tif",
+      mask_R = opt.out_prefix+"-rMask.tif";
+    DiskImageView<PixelGray<float> > left_disk_image(filename_L);
 
     ImageViewRef<PixelMask<Vector2f> > disparity_map;
     stereo::CorrelatorType cost_mode = stereo::ABS_DIFF_CORRELATOR;
@@ -256,21 +262,104 @@ namespace vw {
 
     // Generate pyramid layers
     ssize_t levels_to_process = log(std::min(left_disk_image.cols(),
-                                             left_disk_image.rows()))/log(2)-7;
+                                             left_disk_image.rows()))/log(2)-6;
     std::cout << "Levels: " << levels_to_process << "\n";
     if ( levels_to_process < 1 ) levels_to_process = 1;
     for ( ssize_t level = 1; level < levels_to_process; level++ ) {
       std::ostringstream oext, iext;
       oext << level << ".tif";
-      if ( levels_to_process > 1 )
+      if ( level > 1 )
         iext << level - 1 << ".tif";
       else
         iext << ".tif";
 
-      subsample_image(fs::path(filename_L).replace_ext(iext.string()).string(),
-                      fs::path(filename_L).replace_ext(oext.string()).string());
-      subsample_image(fs::path(filename_R).replace_ext(iext.string()).string(),
-                      fs::path(filename_R).replace_ext(oext.string()).string());
+      subsample_image<PixelGray<float> >(opt, fs::path(filename_L).replace_extension(iext.str()).string(), fs::path(filename_L).replace_extension(oext.str()).string());
+      subsample_image<PixelGray<float> >(opt, fs::path(filename_R).replace_extension(iext.str()).string(), fs::path(filename_R).replace_extension(oext.str()).string());
+      subsample_image<uint8 >(opt, fs::path(mask_L).replace_extension(iext.str()).string(), fs::path(mask_L).replace_extension(oext.str()).string(), true);
+      subsample_image<uint8 >(opt, fs::path(mask_R).replace_extension(iext.str()).string(), fs::path(mask_R).replace_extension(oext.str()).string(), true);
+    }
+
+    {
+      const size_t PARTITION_SIZE = 128;
+
+      // Creating starting search size
+      size_t divsor = PARTITION_SIZE * pow(2,levels_to_process - 1);
+      ImageView<Vector4f> search_image( left_disk_image.cols()/divsor+1,
+                                        left_disk_image.rows()/divsor+1 );
+      fill( search_image,
+            Vector4f( opt.search_range.min()[0],
+                      opt.search_range.min()[1],
+                      opt.search_range.max()[0],
+                      opt.search_range.max()[1] ) /
+            pow(2.0f,float(levels_to_process - 1) ) );
+      std::cout << "Search_image: " << search_image(0,0) << "\n";
+
+      // Processing layers and deleting level files as I continue
+      for ( ssize_t level = levels_to_process - 1;
+            level >= 0; level-- ) {
+        std::ostringstream iext;
+        if ( level > 0 )
+          iext << level << ".tif";
+        else
+          iext << ".tif";
+
+        std::string file_l = fs::path(filename_L).replace_extension(iext.str()).string(),
+          file_r = fs::path(filename_R).replace_extension(iext.str()).string(),
+          file_lm = fs::path(mask_L).replace_extension(iext.str()).string(),
+          file_rm = fs::path(mask_R).replace_extension(iext.str()).string();
+
+        DiskImageView<PixelGray<float> > left_input( file_l ), right_input( file_r );
+        DiskImageView<uint8> left_mask( file_lm ), right_mask( file_rm );
+
+        std::cout << "Left size:   " << bounding_box(left_input) << "\n";
+        std::cout << "Search size: " << bounding_box(search_image) << "\n";
+
+        ImageViewRef<PixelMask<Vector2f> > disparity_map_shallow =
+          correlator_helper( left_input, right_input,
+                             left_mask, right_mask,
+                             search_image, PARTITION_SIZE,
+                             stereo::SlogStereoPreprocessingFilter(stereo_settings().slogW),
+                             cost_mode );
+
+        if ( level != 0 ) {
+          std::ostringstream ostr;
+          ostr << opt.out_prefix << "-D." << level << ".tif";
+
+          DiskImageResourceGDAL
+            disparity_map_rsrc(ostr.str(),
+                               disparity_map_shallow.format(),
+                               opt.raster_tile_size,
+                               opt.gdal_options );
+          block_write_image( disparity_map_rsrc, disparity_map_shallow,
+                             TerminalProgressCallback("asp", "\t--> Correlation  Inner:") );
+
+          /*DiskCacheImageView<PixelMask<Vector2f> >
+            disparity_map( disparity_map_shallow, "tif",
+                           TerminalProgressCallback("asp", "\t--> Correlation Inter:"),
+                           stereo_settings().cache_dir );
+          */
+          DiskImageView<PixelMask<Vector2f> > disparity_map(ostr.str());
+          write_image( ostr.str()+"-DBGO.tif", resample(disparity_map,2)*2 );
+          write_image( ostr.str()+"-DBG.tif", stereo::disparity_upsample(disparity_map) );
+
+          search_image =
+            compute_search_ranges( stereo::disparity_upsample(disparity_map),
+                                   PARTITION_SIZE );
+          fs::remove( file_l );
+          fs::remove( file_r );
+          fs::remove( file_lm );
+          fs::remove( file_rm );
+        } else {
+          DiskImageResourceGDAL
+            disparity_map_rsrc(opt.out_prefix + "-D.tif",
+                               disparity_map_shallow.format(),
+                               opt.raster_tile_size,
+                               opt.gdal_options );
+          block_write_image( disparity_map_rsrc, disparity_map_shallow,
+                             TerminalProgressCallback("asp", "\t--> Correlation :") );
+
+        }
+      }
     }
 
     // levels I want to process = log2(smallest dimension) - 7
