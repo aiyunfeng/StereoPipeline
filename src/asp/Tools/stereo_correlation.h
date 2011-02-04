@@ -318,20 +318,22 @@ namespace vw {
           correlator_helper( left_input, right_input,
                              left_mask, right_mask,
                              search_image, PARTITION_SIZE,
-                             stereo::SlogStereoPreprocessingFilter(stereo_settings().slogW),
+                             stereo::NullStereoPreprocessingFilter(),
                              cost_mode );
 
         if ( level != 0 ) {
           std::ostringstream ostr;
           ostr << opt.out_prefix << "-D." << level << ".tif";
 
-          DiskImageResourceGDAL
-            disparity_map_rsrc(ostr.str(),
-                               disparity_map_shallow.format(),
-                               opt.raster_tile_size,
-                               opt.gdal_options );
-          block_write_image( disparity_map_rsrc, disparity_map_shallow,
-                             TerminalProgressCallback("asp", "\t--> Correlation  Inner:") );
+          {
+            DiskImageResourceGDAL
+              disparity_map_rsrc(ostr.str(),
+                                 disparity_map_shallow.format(),
+                                 opt.raster_tile_size,
+                                 opt.gdal_options );
+            block_write_image( disparity_map_rsrc, disparity_map_shallow,
+                               TerminalProgressCallback("asp", "\t--> Correlation  Inner:") );
+          }
 
           /*DiskCacheImageView<PixelMask<Vector2f> >
             disparity_map( disparity_map_shallow, "tif",
@@ -340,10 +342,9 @@ namespace vw {
           */
           DiskImageView<PixelMask<Vector2f> > disparity_map(ostr.str());
           write_image( ostr.str()+"-DBGO.tif", resample(disparity_map,2)*2 );
-          write_image( ostr.str()+"-DBG.tif", stereo::disparity_upsample(disparity_map) );
 
           search_image =
-            compute_search_ranges( stereo::disparity_upsample(disparity_map),
+            compute_search_ranges( resample(disparity_map,2)*2,
                                    PARTITION_SIZE );
           fs::remove( file_l );
           fs::remove( file_r );
