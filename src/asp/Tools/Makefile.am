@@ -14,7 +14,7 @@ python_tool_scripts =
 
 if MAKE_APP_STEREO
   python_tool_scripts += stereo
-  bin_PROGRAMS += stereo_corr stereo_fltr stereo_pprc stereo_rfne stereo_tri
+  bin_PROGRAMS += stereo_corr stereo_fltr stereo_pprc stereo_rfne stereo_tri stereo_tri_rpc
   stereo_corr_SOURCES = stereo_corr.cc stereo.cc
   stereo_corr_LDADD   = $(APP_STEREO_LIBS)
   stereo_fltr_SOURCES = stereo_fltr.cc stereo.cc
@@ -25,6 +25,8 @@ if MAKE_APP_STEREO
   stereo_rfne_LDADD   = $(APP_STEREO_LIBS)
   stereo_tri_SOURCES  = stereo_tri.cc stereo.cc
   stereo_tri_LDADD    = $(APP_STEREO_LIBS)
+  stereo_tri_rpc_SOURCES = stereo_tri_rpc.cc stereo.cc
+  stereo_tri_rpc_LDADD   = $(APP_STEREO_LIBS)
 endif
 
 if MAKE_APP_BUNDLEADJUST

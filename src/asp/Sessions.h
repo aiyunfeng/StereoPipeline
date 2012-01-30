@@ -18,3 +18,4 @@
 #include <asp/Sessions/RMAX/StereoSessionRmax.h>
 #include <asp/Sessions/Keypoint/StereoSessionKeypoint.h>
 #include <asp/Sessions/Pinhole/StereoSessionPinhole.h>
+#include <asp/Sessions/RPC/StereoSessionRPC.h>
