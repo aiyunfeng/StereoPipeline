@@ -10,6 +10,12 @@
 #include <vw/FileIO/DiskImageResourceGDAL.h>
 #include <vw/Camera/CameraModel.h>
 
+namespace vw {
+  namespace cartography {
+    class Datum;
+  }
+}
+
 namespace asp {
 
   // TODO: Need to work out a different way to triangulate. Our
@@ -17,6 +23,15 @@ namespace asp {
   // * Pull Datum from file. LLH measurement are geodetic.
 
   class RPCModel : public vw::camera::CameraModel {
+    Datum m_datum;
+
+    // Scaling parameters
+    vw::Vector<double,20> m_line_num_coeff, m_line_den_coeff,
+      m_sample_num_coeff, m_sample_den_coeff;
+    vw::Vector2 m_xy_offset;
+    vw::Vector2 m_xy_scale;
+    vw::Vector3 m_lonlatheight_offset;
+    vw::Vector3 m_lonlatheight_scale;
     vw::BBox2 m_lonlat_bbox;
 
     void initialize( vw::DiskImageResourceGDAL* resource );
@@ -37,9 +52,21 @@ namespace asp {
     void inverse_transform( vw::Vector2 const& pix, vw::Vector3& point,
                             vw::Vector3& direction ) const;
 
-    static vw::Vector<double,20>
-    calculate_terms( vw::Vector3 const& v ) {
-      vw::Vector<double,20> result;
+    // Access to constants
+    typedef vw::Vector<double,20> CoeffVec;
+    Datum const& datum() const { return m_datum; }
+    CoeffVec const& line_num_coeff() const   { return m_line_num_coeff; }
+    CoeffVec const& line_den_coeff() const   { return m_line_den_coeff; }
+    CoeffVec const& sample_num_coeff() const { return m_sample_num_coeff; }
+    CoeffVec const& sample_den_coeff() const { return m_sample_den_coeff; }
+    vw::Vector2 const& xy_offset() const     { return m_xy_offset; }
+    vw::Vector2 const& xy_scale() const      { return m_xy_scale; }
+    vw::Vector3 const& lonlatheight_offset() const { return m_lonlatheight_offset; }
+    vw::Vector3 const& lonlatheight_scale() const  { return m_lonlatheight_scale; }
+    vw::BBox2 const& lonlat_bbox() const     { return m_lonlat_bbox; }
+
+    static CoeffVec calculate_terms( vw::Vector3 const& v ) {
+      CoeffVec result;
       result[0] = 1.0;
       result[1] = v.x();
       result[2] = v.y();
@@ -64,13 +91,6 @@ namespace asp {
       return result;
     }
 
-    // Scaling parameters
-    vw::Vector<double,20> m_line_num_coeff, m_line_den_coeff,
-      m_sample_num_coeff, m_sample_den_coeff;
-    vw::Vector2 line_os; // [OFFSET, SCALE]
-    vw::Vector2 sample_os;
-    vw::Vector3 lonlatheight_offset;
-    vw::Vector3 lonlatheight_scale;
   };
 
 }

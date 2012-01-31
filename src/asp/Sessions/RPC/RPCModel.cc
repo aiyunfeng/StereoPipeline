@@ -14,6 +14,12 @@ using namespace asp;
 using namespace vw;
 
 void asp::RPCModel::initialize( DiskImageResourceGDAL* resource ) {
+  // Extract Datum (by means of GeoReference)
+  GeoReference georef;
+  read_georeference( georef, *resource );
+  m_datum = georef.datum();
+
+  // Extract RPC Info
   boost::shared_ptr<GDALDataset> dataset = resource->get_dataset_ptr();
   if ( !dataset )
     vw_throw( LogicErr() << "RPCModel: Could not read data. No file has been opened." );
@@ -24,19 +30,19 @@ void asp::RPCModel::initialize( DiskImageResourceGDAL* resource ) {
     vw_throw( LogicErr() << "RPCModel: GDAL resource appears not to have RPC metadata." );
 
   // Copy information over to our data structures.
-  lonlatheight_offset = Vector3(gdal_rpc.dfLONG_OFF,
-                                gdal_rpc.dfLAT_OFF,
-                                gdal_rpc.dfHEIGHT_OFF);
-  lonlatheight_scale = Vector3(gdal_rpc.dfLONG_SCALE,
-                               gdal_rpc.dfLAT_SCALE,
-                               gdal_rpc.dfHEIGHT_SCALE);
-  line_os = Vector2(gdal_rpc.dfLINE_OFF, gdal_rpc.dfLINE_SCALE);
-  sample_os = Vector2(gdal_rpc.dfSAMP_OFF, gdal_rpc.dfSAMP_SCALE);
+  m_lonlatheight_offset = Vector3(gdal_rpc.dfLONG_OFF,
+                                  gdal_rpc.dfLAT_OFF,
+                                  gdal_rpc.dfHEIGHT_OFF);
+  m_lonlatheight_scale = Vector3(gdal_rpc.dfLONG_SCALE,
+                                 gdal_rpc.dfLAT_SCALE,
+                                 gdal_rpc.dfHEIGHT_SCALE);
+  m_xy_offset = Vector2(gdal_rpc.dfSAMP_OFF,   gdal_rpc.dfLINE_OFF);
+  m_xy_scale  = Vector2(gdal_rpc.dfSAMP_SCALE, gdal_rpc.dfLINE_SCALE);
 
-  m_line_num_coeff = Vector<double,20>(gdal_rpc.adfLINE_NUM_COEFF);
-  m_line_den_coeff = Vector<double,20>(gdal_rpc.adfLINE_DEN_COEFF);
-  m_sample_num_coeff = Vector<double,20>(gdal_rpc.adfSAMP_NUM_COEFF);
-  m_sample_den_coeff = Vector<double,20>(gdal_rpc.adfSAMP_DEN_COEFF);
+  m_line_num_coeff =   CoeffVec(gdal_rpc.adfLINE_NUM_COEFF);
+  m_line_den_coeff =   CoeffVec(gdal_rpc.adfLINE_DEN_COEFF);
+  m_sample_num_coeff = CoeffVec(gdal_rpc.adfSAMP_NUM_COEFF);
+  m_sample_den_coeff = CoeffVec(gdal_rpc.adfSAMP_DEN_COEFF);
   m_lonlat_bbox = BBox2(Vector2(gdal_rpc.dfMIN_LONG, gdal_rpc.dfMIN_LAT),
                         Vector2(gdal_rpc.dfMAX_LONG, gdal_rpc.dfMAX_LAT));
 }
@@ -58,7 +64,7 @@ Vector2 asp::RPCModel::point_to_pixel( Vector3 const& point ) const {
 
   Vector3 lonlatrad = cartography::xyz_to_lon_lat_radius( point );
 
-  Vector<double,20> term =
+  CoeffVec term =
     calculate_terms( elem_quot(lonlatrad - lonlatheight_offset,
                                lonlatheight_scale) );
 

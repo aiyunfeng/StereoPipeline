@@ -10,11 +10,11 @@
 #ifndef __STEREO_SESSION_RPC_H__
 #define __STEREO_SESSION_RPC_H__
 
-#include <asp/Sessions/StereoSession.h>
+#include <asp/Sessions/Pinhole/StereoSessionPinhole.h>
 
 namespace asp {
 
-  class StereoSessionRPC : public StereoSession {
+  class StereoSessionRPC : public StereoSessionPinhole {
 
   public:
     virtual ~StereoSessionRPC() {}

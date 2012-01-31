@@ -45,6 +45,7 @@ int main( int argc, char* argv[] ) {
     // Triangulation with RPC is a little tricky. Here's the plan.
     // 1.) Solve for the mean XYZ for both cameras by looking at the
     // LLH boxes.
+    
     // 2.) Solve for one ray's intersection at the mean height. This
     // will seed the rigoruos algorithm. I believe this is equation 24
     // in Grodecki 2004. We only need the first iteration's result.
