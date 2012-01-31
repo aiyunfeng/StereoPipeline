@@ -5,14 +5,16 @@
 // __END_LICENSE__
 
 #include <asp/Sessions/RPC/RPCModel.h>
-#include <gdal.h>
+
+#include <vw/FileIO/GdalIO.h>
+#include <vw/FileIO/DiskImageResourceGDAL.h>
+#include <vw/Cartography.h>
 
 using namespace asp;
 using namespace vw;
 
-RPCModel::RPCModel( DiskImageResourceGDAL const& resource  ) {
-
-  boost::shared_ptr<GDALDataset> dataset = resource.get_dataset_ptr();
+void asp::RPCModel::initialize( DiskImageResourceGDAL* resource ) {
+  boost::shared_ptr<GDALDataset> dataset = resource->get_dataset_ptr();
   if ( !dataset )
     vw_throw( LogicErr() << "RPCModel: Could not read data. No file has been opened." );
 
@@ -39,39 +41,22 @@ RPCModel::RPCModel( DiskImageResourceGDAL const& resource  ) {
                         Vector2(gdal_rpc.dfMAX_LONG, gdal_rpc.dfMAX_LAT));
 }
 
-Vector<double,20> RPCModel::calculate_terms( Vector3 const& v ) {
-  Vector<double,20> result;
-  result[0] = 1.0;
-  result[1] = v.x();
-  result[2] = v.y();
-  result[3] = v.z();
-  result[4] = v.x() * v.y();
-  result[5] = v.x() * v.z();
-  result[6] = v.y() * v.z();
-  result[7] = v.x() * v.x();
-  result[8] = v.y() * v.y();
-  result[9] = v.z() * v.z();
+asp::RPCModel::RPCModel( std::string const& filename ) {
+  boost::scoped_ptr<DiskImageResourceGDAL> s_ptr( new DiskImageResourceGDAL(filename) );
+  initialize( s_ptr.get() );
+}
 
-  result[10] = v.x() * v.y() * v.z();
-  result[11] = v.x() * v.x() * v.x();
-  result[12] = v.x() * v.y() * v.y();
-  result[13] = v.x() * v.z() * v.z();
-  result[14] = v.x() * v.x() * v.y();
-  result[15] = v.y() * v.y() * v.y();
-  result[16] = v.y() * v.z() * v.z();
-  result[17] = v.x() * v.x() * v.z();
-  result[18] = v.y() * v.y() * v.z();
-  result[19] = v.z() * v.z() * v.z();
-  return result;
+asp::RPCModel::RPCModel( DiskImageResourceGDAL* resource  ) {
+  initialize( resource );
 }
 
 // All of these implementations are largely inspired by the GDAL
 // code. We don't use the GDAL code unfortunately because they don't
 // make that part of the API available. However I believe this is a
 // safe reinterpretation that is safe to distribute.
-Vector2 RPCModel::point_to_pixel( Vector3 const& point ) const {
+Vector2 asp::RPCModel::point_to_pixel( Vector3 const& point ) const {
 
-  Vector3 lonlatrad = xyz_to_lon_lat_radius( point );
+  Vector3 lonlatrad = cartography::xyz_to_lon_lat_radius( point );
 
   Vector<double,20> term =
     calculate_terms( elem_quot(lonlatrad - lonlatheight_offset,
@@ -83,19 +68,19 @@ Vector2 RPCModel::point_to_pixel( Vector3 const& point ) const {
                   dot_prod(term,m_line_den_coeff) * sample_os[1] + sample_os[0] );
 }
 
-Vector3 RPCModel::pixel_to_vector( Vector2 const& pix ) const {
+Vector3 asp::RPCModel::pixel_to_vector( Vector2 const& pix ) const {
   Vector3 point, direction;
   inverse_transform( pix, point, direction );
   return direction;
 }
 
-Vector3 RPCModel::camera_center( Vector2 const& pix ) const {
+Vector3 asp::RPCModel::camera_center( Vector2 const& pix ) const {
   Vector3 point, direction;
   inverse_transform( pix, point, direction );
   return point;
 }
 
-void RPCModel::inverse_transform( Vector2 const& pix, Vector3& point, Vector3& direction ) {
+void asp::RPCModel::inverse_transform( Vector2 const& pix, Vector3& point, Vector3& direction ) const {
   // Step 1: Calculate an approximate starting point and assume the
   // direction vector is point towards the center of the earth.
 
