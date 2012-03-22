@@ -6,6 +6,7 @@
 
 #include <asp/Sessions/RPC/RPCModel.h>
 
+#include <vw/Math/Vector.h>
 #include <vw/FileIO/GdalIO.h>
 #include <vw/FileIO/DiskImageResourceGDAL.h>
 #include <vw/Cartography.h>
@@ -15,19 +16,19 @@ using namespace vw;
 
 void asp::RPCModel::initialize( DiskImageResourceGDAL* resource ) {
   // Extract Datum (by means of GeoReference)
-  GeoReference georef;
-  read_georeference( georef, *resource );
+  cartography::GeoReference georef;
+  cartography::read_georeference( georef, *resource );
   m_datum = georef.datum();
 
   // Extract RPC Info
   boost::shared_ptr<GDALDataset> dataset = resource->get_dataset_ptr();
   if ( !dataset )
-    vw_throw( LogicErr() << "RPCModel: Could not read data. No file has been opened." );
+    vw_throw( NotFoundErr() << "RPCModel: Could not read data. No file has been opened." );
 
   GDALRPCInfo gdal_rpc;
   if ( !GDALExtractRPCInfo( dataset->GetMetadata("RPC"),
                             &gdal_rpc) )
-    vw_throw( LogicErr() << "RPCModel: GDAL resource appears not to have RPC metadata." );
+    vw_throw( NotFoundErr() << "RPCModel: GDAL resource appears not to have RPC metadata." );
 
   // Copy information over to our data structures.
   m_lonlatheight_offset = Vector3(gdal_rpc.dfLONG_OFF,
@@ -62,33 +63,16 @@ asp::RPCModel::RPCModel( DiskImageResourceGDAL* resource  ) {
 // safe reinterpretation that is safe to distribute.
 Vector2 asp::RPCModel::point_to_pixel( Vector3 const& point ) const {
 
-  Vector3 lonlatrad = cartography::xyz_to_lon_lat_radius( point );
+  Vector3 geodetic = m_datum.cartesian_to_geodetic( point );
 
   CoeffVec term =
-    calculate_terms( elem_quot(lonlatrad - lonlatheight_offset,
-                               lonlatheight_scale) );
+    calculate_terms( elem_quot(geodetic - m_lonlatheight_offset,
+                               m_lonlatheight_scale) );
 
-  return Vector2( dot_prod(term,m_sample_num_coeff) /
-                  dot_prod(term,m_sample_den_coeff) * sample_os[1] + sample_os[0],
-                  dot_prod(term,m_line_num_coeff) /
-                  dot_prod(term,m_line_den_coeff) * sample_os[1] + sample_os[0] );
-}
+  Vector2 normalized_proj( dot_prod(term,m_sample_num_coeff) /
+                           dot_prod(term,m_sample_den_coeff),
+                           dot_prod(term,m_line_num_coeff) /
+                           dot_prod(term,m_line_den_coeff) );
 
-Vector3 asp::RPCModel::pixel_to_vector( Vector2 const& pix ) const {
-  Vector3 point, direction;
-  inverse_transform( pix, point, direction );
-  return direction;
-}
-
-Vector3 asp::RPCModel::camera_center( Vector2 const& pix ) const {
-  Vector3 point, direction;
-  inverse_transform( pix, point, direction );
-  return point;
-}
-
-void asp::RPCModel::inverse_transform( Vector2 const& pix, Vector3& point, Vector3& direction ) const {
-  // Step 1: Calculate an approximate starting point and assume the
-  // direction vector is point towards the center of the earth.
-
-  // Step 2: Reduce the reprojection error
+  return elem_prod( normalized_proj, m_xy_scale ) + m_xy_offset;
 }

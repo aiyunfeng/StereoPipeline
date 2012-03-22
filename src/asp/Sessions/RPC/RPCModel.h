@@ -9,21 +9,14 @@
 
 #include <vw/FileIO/DiskImageResourceGDAL.h>
 #include <vw/Camera/CameraModel.h>
-
-namespace vw {
-  namespace cartography {
-    class Datum;
-  }
-}
+#include <vw/Cartography/Datum.h>
 
 namespace asp {
 
   // TODO: Need to work out a different way to triangulate. Our
   //   standard midpoint method doesn't seem to work.
-  // * Pull Datum from file. LLH measurement are geodetic.
-
   class RPCModel : public vw::camera::CameraModel {
-    Datum m_datum;
+    vw::cartography::Datum m_datum;
 
     // Scaling parameters
     vw::Vector<double,20> m_line_num_coeff, m_line_den_coeff,
@@ -45,16 +38,18 @@ namespace asp {
     // Standard Access Methods (Most of these will fail because they
     // don't apply well to RPC.)
     virtual vw::Vector2 point_to_pixel( vw::Vector3 const& point ) const;
-    virtual vw::Vector3 pixel_to_vector( vw::Vector2 const& pix ) const;
-    virtual vw::Vector3 camera_center( vw::Vector2 const& pix ) const;
-
-    // Non standard access, but more efficient
-    void inverse_transform( vw::Vector2 const& pix, vw::Vector3& point,
-                            vw::Vector3& direction ) const;
+    virtual vw::Vector3 pixel_to_vector( vw::Vector2 const& pix ) const {
+      vw::vw_throw( vw::NoImplErr() << "RPCModel: Pixel to Vector not implemented" );
+      return vw::Vector3();
+    }
+    virtual vw::Vector3 camera_center( vw::Vector2 const& pix ) const {
+      vw::vw_throw( vw::NoImplErr() << "RPCModel: Camera center not implemented" );
+      return vw::Vector3();
+    }
 
     // Access to constants
     typedef vw::Vector<double,20> CoeffVec;
-    Datum const& datum() const { return m_datum; }
+    vw::cartography::Datum const& datum() const { return m_datum; }
     CoeffVec const& line_num_coeff() const   { return m_line_num_coeff; }
     CoeffVec const& line_den_coeff() const   { return m_line_den_coeff; }
     CoeffVec const& sample_num_coeff() const { return m_sample_num_coeff; }
