@@ -114,7 +114,7 @@ namespace asp {
         select_channel(smoothed_disparity, 1) = fitted_v;
       } else {
         // Failed to fit.
-        smoothed_disparity = copy;
+        fill(smoothed_disparity, pixel_type());
       }
 
       return prerasterize_type(smoothed_disparity,
