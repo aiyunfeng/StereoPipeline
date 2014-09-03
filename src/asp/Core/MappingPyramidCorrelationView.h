@@ -26,7 +26,7 @@
 #include <vw/Image/Algorithms.h>
 #include <vw/Image/AlgorithmFunctions.h>
 #include <vw/Image/PerPixelAccessorViews.h>
-#include <vw/FileIO.h>
+#include <vw/Image/BlockRasterize.h>
 #include <vw/Stereo/Correlation.h>
 #include <vw/Stereo/Correlate.h>
 #include <vw/Stereo/DisparityMap.h>
@@ -48,7 +48,7 @@ namespace asp {
   };
 
   /// An image view for performing pyramid image correlation (Faster
-  /// than CorrelationView).
+  /// than CorrelationView in situations where terrain is aggressive).
   template <class Image1T, class Image2T, class Mask1T, class Mask2T, class PreFilterT>
   class MappingPyramidCorrelationView : public vw::ImageViewBase<MappingPyramidCorrelationView<Image1T,Image2T, Mask1T, Mask2T, PreFilterT> >, MappingPyramidCorrelationViewBase {
 
@@ -190,11 +190,6 @@ namespace asp {
           crop(edge_extend(m_right_mask,ConstantEdgeExtension()),
                right_roi[0]);
 
-#if VW_DEBUG_LEVEL > 0
-        VW_OUT(DebugMessage,"stereo") << " > Left ROI: " << left_roi[0]
-                                      << "\n > Right ROI: " << right_roi[0] << "\n";
-#endif
-
         // Fill in the nodata of the left and right images with a mean
         // pixel value. This helps with the edge quality of a DEM.
         typename Image1T::pixel_type left_mean;
@@ -284,18 +279,11 @@ namespace asp {
       }
 
       // 3.0) Actually perform correlation now
-      // 3.1) Perform a dense correlation at the top most image using the original unwarped images
-      int32 scaling = 1 << max_pyramid_levels;
-      Vector2i region_offset = max_upscaling * half_kernel / scaling;
-
-      BBox2i left_region = bounding_box(left_mask_pyramid[max_pyramid_levels]) + region_offset;
-      left_region.min() -= half_kernel;
-      left_region.max() += half_kernel;
-      BBox2i right_region = left_region;
-      right_region.max() += m_search_region.size() / max_upscaling + Vector2i(1,1);
-
       Vector2i top_level_search = m_search_region.size() / max_upscaling + Vector2i(1,1);
 
+      // 3.1) Perform a dense correlation at the top most image
+      // using the original unwarped images. This is the only time
+      // we'll actually use the full search range.
       ImageView<PixelMask<Vector2i> > disparity, rl_disparity;
       {
         disparity =
@@ -322,13 +310,16 @@ namespace asp {
                                              m_consistency_threshold, false);
       }
 
+      // This numbers we're picked heuristically. If the additive
+      // search range was smaller though .. we would process a lot
+      // faster.
       const BBox2i additive_search_range(-8, -8, 16, 16);
       const Vector2i surface_fit_tile(32, 32);
 
       // Block rasterize with 1 thread is broken
       ImageView<PixelMask<Vector2f> > smooth_disparity =
-        block_rasterize(asp::surface_fit(disparity),
-                        surface_fit_tile, 2);
+        vw::block_rasterize(asp::surface_fit(disparity),
+                            surface_fit_tile, 2);
       blur_disparity(smooth_disparity,
                      BBox2i(Vector2i(0, 0),
                             m_search_region.size() / max_upscaling));
@@ -338,7 +329,7 @@ namespace asp {
       ImageView<PixelMask<Vector2f> > super_disparity, super_disparity_exp;
       ImageView<typename Image2T::pixel_type> right_t;
       for ( int32 level = max_pyramid_levels - 1; level > 0; --level) {
-        scaling = 1 << level;
+        int32 scaling = 1 << level;
         Vector2i output_size = Vector2i(1,1) + (bbox_exp.size() - Vector2i(1,1)) / scaling;
 
         // The active area is less than what we have actually
@@ -351,22 +342,32 @@ namespace asp {
         active_left_roi.max() += half_kernel;
 
         BBox2i active_right_roi = active_left_roi;
-        active_right_roi.max() += additive_search_range.size();
+        active_right_roi.max() += additive_search_range.max();
+        active_right_roi.min() += additive_search_range.min();
 
         // Upsample the previous disparity and then extrapolate the
         // disparity out so we can fill in the whole right roi that
         // we need.
         super_disparity_exp =
-          crop(edge_extend(2 * crop(resample(smooth_disparity, 2, 2), BBox2i(Vector2i(), output_size))
-                           + PixelMask<Vector2f>(additive_search_range.min())),
+          crop(edge_extend(2 * crop(resample(smooth_disparity, 2, 2),
+                                    BBox2i(Vector2i(), output_size))),
                active_right_roi);
 
+        // The center crop (right after the edge extend) is because
+        // we actually want to resample just a half kernel out from
+        // the active area we care about. However the pyramid
+        // actually has a lot more imagery than we need as it was
+        // padded for a half kernel at the highest level.
+        //
+        // The crop size doesn't matter for the inner round since we
+        // need it only to shift the origin and because we are using
+        // a version of transform that doesn't call edge extend.
         right_t =
-          crop(transform_no_edge(crop(edge_extend(right_pyramid[level]),
-                                      active_right_roi.min().x() - right_roi[level].min().x(),
-                                      active_right_roi.min().y() - right_roi[level].min().y(),
-                                      1, 1),
-                                 stereo::DisparityTransform(super_disparity_exp)),
+          crop(transform_no_edge
+               (crop(edge_extend(right_pyramid[level]),
+                     active_right_roi.min().x() - right_roi[level].min().x(),
+                     active_right_roi.min().y() - right_roi[level].min().y(), 1, 1),
+                stereo::DisparityTransform(super_disparity_exp)),
                active_right_roi - active_right_roi.min());
 
         disparity =
@@ -374,6 +375,7 @@ namespace asp {
                          crop(left_pyramid[level], active_left_roi - left_roi[level].min()),
                          right_t, active_left_roi - active_left_roi.min(),
                          additive_search_range.size(), m_kernel_size);
+
         rl_disparity =
           calc_disparity(m_cost_type,
                          right_t,
@@ -391,7 +393,9 @@ namespace asp {
           crop(super_disparity_exp,
                BBox2i(-active_right_roi.min(),
                       -active_right_roi.min() + output_size)) +
-          pixel_cast<PixelMask<Vector2f> >(disparity);
+          pixel_cast<PixelMask<Vector2f> >(disparity) +
+          PixelMask<Vector2f>(additive_search_range.min());
+
         smooth_disparity =
           block_rasterize(asp::surface_fit(super_disparity),
                           surface_fit_tile, 2);
@@ -399,25 +403,28 @@ namespace asp {
         blur_disparity(smooth_disparity,
                        BBox2i(Vector2i(),
                               m_search_region.size() / scaling));
-      }
+
+      } // end of level loop
 
       BBox2i active_left_roi(Vector2i(), bbox_exp.size());
       active_left_roi.min() -= half_kernel;
       active_left_roi.max() += half_kernel;
       BBox2i active_right_roi = active_left_roi;
-      active_right_roi.max() += additive_search_range.size();
+      active_right_roi.min() += additive_search_range.min();
+      active_right_roi.max() += additive_search_range.max();
 
       super_disparity_exp =
-        crop(edge_extend(2 * crop(resample(smooth_disparity, 2, 2), BBox2i(Vector2i(), bbox_exp.size()))
-                         + PixelMask<Vector2f>(additive_search_range.min())),
+        crop(edge_extend(2 * crop(resample(smooth_disparity, 2, 2),
+                                  BBox2i(Vector2i(), bbox_exp.size()))),
              active_right_roi);
 
       right_t =
-        crop(transform_no_edge(crop(edge_extend(right_pyramid[0]),
-                                    active_right_roi.min().x() - right_roi[0].min().x(),
-                                    active_right_roi.min().y() - right_roi[0].min().y(),
-                                    1, 1),
-                               stereo::DisparityTransform(super_disparity_exp)),
+        crop(transform_no_edge
+             (crop(edge_extend(right_pyramid[0]),
+                   active_right_roi.min().x() - right_roi[0].min().x(),
+                   active_right_roi.min().y() - right_roi[0].min().y(),
+                   1, 1),
+              stereo::DisparityTransform(super_disparity_exp)),
              active_right_roi - active_right_roi.min());
 
       // Hmm calc_disparity actually copies the imagery
@@ -448,14 +455,17 @@ namespace asp {
 
       stereo::cross_corr_consistency_check(disparity, rl_disparity,
                                            m_consistency_threshold, false);
+
       BBox2i roi_super_disp(-active_right_roi.min().x() + m_padding,
                             -active_right_roi.min().y() + m_padding,
                             disparity.cols(), disparity.rows());
-      disparity +=
-        pixel_cast<pixel_type>(crop(super_disparity_exp, roi_super_disp));
-      VW_ASSERT(disparity.cols() == bbox.width() &&
-                disparity.rows() == bbox.height(),
-                MathErr() << bounding_box(disparity) << " !fit in " << bbox_exp);
+      super_disparity =
+        crop(super_disparity_exp, roi_super_disp) +
+        pixel_cast<PixelMask<Vector2f> >(disparity) +
+        PixelMask<Vector2f>(additive_search_range.min());
+      VW_ASSERT(super_disparity.cols() == bbox.width() &&
+                super_disparity.rows() == bbox.height(),
+                MathErr() << bounding_box(super_disparity) << " !fit in " << bbox_exp);
 
 #if VW_DEBUG_LEVEL > 0
       watch.stop();
