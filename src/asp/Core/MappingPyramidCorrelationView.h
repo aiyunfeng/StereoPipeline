@@ -477,7 +477,7 @@ namespace asp {
       // 5.0) Reposition our result back into the global
       // solution. Also we need to correct for the offset we applied
       // to the search region.
-      return prerasterize_type(disparity + pixel_type(m_search_region.min()),
+      return prerasterize_type(super_disparity + pixel_type(m_search_region.min()),
                                -bbox.min().x(), -bbox.min().y(),
                                cols(), rows() );
     }
