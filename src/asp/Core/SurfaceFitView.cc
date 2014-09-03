@@ -4,7 +4,7 @@
 
 using namespace vw;
 
-void asp::SurfaceFitViewBase::fit_2d_polynomial_surface( ImageView<PixelMask<Vector2i> > const& input,
+bool asp::SurfaceFitViewBase::fit_2d_polynomial_surface( ImageView<PixelMask<Vector2i> > const& input,
                                                          Matrix3x3* output_h, Matrix3x3* output_v,
                                                          Vector2* xscaling, Vector2* yscaling) const {
   // Figure out what our scaling parameters should be
@@ -19,7 +19,7 @@ void asp::SurfaceFitViewBase::fit_2d_polynomial_surface( ImageView<PixelMask<Vec
     ceres::Problem problem;
     for (int j = 0; j < input.rows(); j+=2) {
       for (int i = 0; i < input.cols(); i+=2 ) {
-        if (is_valid(input(i,j)))
+        if (is_valid(input(i,j))) {
           problem.AddResidualBlock
             (new ceres::AutoDiffCostFunction<PolynomialSurfaceFit, 1, 9>
              (new PolynomialSurfaceFit
@@ -28,8 +28,13 @@ void asp::SurfaceFitViewBase::fit_2d_polynomial_surface( ImageView<PixelMask<Vec
                (double(j) + yscaling->x()) * yscaling->y())),
              new ceres::CauchyLoss(4),
              &(*output_h)(0,0));
+        }
       }
     }
+
+    // Quit rather than error out if there is no valid disparity
+    if (problem.NumResidualBlocks() < 1)
+      return false;
 
     ceres::Solver::Options options;
     options.max_num_iterations = 300;
@@ -63,6 +68,8 @@ void asp::SurfaceFitViewBase::fit_2d_polynomial_surface( ImageView<PixelMask<Vec
     ceres::Solve(options, &problem, &summary);
     //std::cout << summary.BriefReport() << std::endl;
   }
+
+  return true;
 }
 
 
